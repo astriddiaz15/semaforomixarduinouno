@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STATUS — Semáforo Arduino</title>
+<style>
+  /* Diseño basado en el frame de Figma:
+     fondo blanco, recuadro STATUS gris a la izquierda,
+     semáforo vertical crema a la derecha (verde arriba, rojo abajo). */
+  * { box-sizing: border-box; margin: 0; padding: 0;
+      font-family: Arial, Helvetica, sans-serif; }
+  body { background: #ffffff; min-height: 100vh; display: flex;
+         align-items: center; justify-content: center; padding: 32px; }
+  .layout { display: flex; align-items: flex-start; gap: 90px; flex-wrap: wrap;
+            justify-content: center; }
+
+  /* ---- Recuadro STATUS (gris Figma #D9D9D9, borde negro) ---- */
+  .status-box { background: #D9D9D9; border: 5px solid #000; border-radius: 14px;
+                padding: 26px 34px; width: 430px; max-width: 92vw; text-align: center; }
+  .status-box h1 { font-size: 2.6rem; font-weight: 500; letter-spacing: 6px;
+                   margin-bottom: 10px; }
+  .luz-nombre { font-size: 2.2rem; font-weight: 800; letter-spacing: 2px; margin: 6px 0; }
+  .cuenta { font-size: 4.2rem; font-weight: 800; font-variant-numeric: tabular-nums;
+            line-height: 1; margin: 6px 0 2px; }
+  .cuenta small { font-size: 1.1rem; font-weight: 400; }
+  .detalle { font-size: 1.05rem; margin-top: 10px; }
+  .detalle b { font-weight: 800; }
+  .badge { display: inline-block; margin-top: 14px; font-size: .8rem; font-weight: 700;
+           letter-spacing: 1px; padding: 6px 14px; border-radius: 999px; border: 2px solid #000; }
+  .badge.on  { background: #22c55e; color: #fff; }
+  .badge.off { background: #dc2626; color: #fff; }
+  .cdet { font-size: .85rem; color: #333; margin-top: 8px; min-height: 1.1em; }
+  .err { color: #b91c1c; font-size: .9rem; min-height: 1.2em; margin-top: 10px; }
+  .status-box button { margin-top: 6px; background: #000; color: #fff; border: 0;
+                       border-radius: 8px; padding: 9px 20px; font-size: .95rem;
+                       font-weight: 700; cursor: pointer; }
+
+  /* ---- Semáforo (fondo crema Figma, borde negro) ---- */
+  .semaforo { background: #FFF8DC; border: 6px solid #000; border-radius: 26px;
+              padding: 34px 40px; display: flex; flex-direction: column; gap: 36px; }
+  .foco { width: 130px; height: 130px; border-radius: 50%; border: 5px solid #000;
+          transition: background .25s, box-shadow .25s; }
+  #foco-VERDE    { background: #c9f2d6; }
+  #foco-AMARILLO { background: #f5efb8; }
+  #foco-ROJO     { background: #f3c4c4; }
+  #foco-VERDE.activa    { background: #35ff69; box-shadow: 0 0 34px 8px #35ff69aa; }
+  #foco-AMARILLO.activa { background: #FFEA00; box-shadow: 0 0 34px 8px #FFEA00aa; }
+  #foco-ROJO.activa     { background: #FF0000; box-shadow: 0 0 34px 8px #FF0000aa; }
+
+  @media (max-width: 700px) { .layout { gap: 36px; } }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <div class="status-box">
+    <h1>STATUS</h1>
+    <div id="luz-nombre" class="luz-nombre">—</div>
+    <div id="cuenta" class="cuenta">-- <small>s</small></div>
+    <div class="detalle">para el cambio de luz</div>
+    <div id="pin" class="detalle">Puerto activo: <b>—</b></div>
+    <div id="fase" class="detalle">Duración de fase: —</div>
+    <div><span id="badge" class="badge off">● DESCONECTADO</span></div>
+    <div id="cdet" class="cdet">Esperando Arduino…</div>
+    <div id="err" class="err"></div>
+    <button onclick="location.reload()">Reconectar</button>
+  </div>
+
+  <div class="semaforo">
+    <div id="foco-VERDE" class="foco"></div>
+    <div id="foco-AMARILLO" class="foco"></div>
+    <div id="foco-ROJO" class="foco"></div>
+  </div>
+
+</div>
+
+<script>
+let ultimo = null;
+let horaRecibido = 0;
+const COLORES = { ROJO: '#c00', AMARILLO: '#a88d00', VERDE: '#15803d' };
+
+async function consultar() {
+  try {
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    ultimo = await r.json();
+    horaRecibido = performance.now();
+    document.getElementById('err').textContent = '';
+    pintarFijo();
+  } catch (e) {
+    document.getElementById('err').textContent = 'Sin conexión con el servidor. ¿Ejecutaste server.py?';
+    const b = document.getElementById('badge');
+    b.className = 'badge off';
+    b.textContent = '● DESCONECTADO';
+    document.getElementById('cdet').textContent = 'Servidor no alcanzable.';
+  }
+}
+
+function pintarFijo() {
+  if (!ultimo) return;
+  const nombre = document.getElementById('luz-nombre');
+  nombre.textContent = ultimo.light || '—';
+  nombre.style.color = COLORES[ultimo.light] || '#000';
+  document.getElementById('pin').innerHTML = 'Puerto activo: <b>GPIO ' + (ultimo.pin ?? '—') + '</b>';
+  document.getElementById('fase').textContent = 'Duración de fase: ' + (ultimo.duration ?? '—') + ' s';
+  const b = document.getElementById('badge');
+  const d = document.getElementById('cdet');
+  if (ultimo.connected) {
+    b.className = 'badge on';
+    b.textContent = '● CONECTADO';
+    d.textContent = 'Arduino en ' + (ultimo.port || ultimo.mode || 'serial') + ' · recibiendo datos';
+  } else {
+    b.className = 'badge off';
+    b.textContent = '● DESCONECTADO';
+    d.textContent = 'Esperando Arduino en COM7…';
+  }
+  for (const L of ['ROJO', 'AMARILLO', 'VERDE'])
+    document.getElementById('foco-' + L).classList.toggle('activa', ultimo.light === L);
+}
+
+// Cuenta regresiva fluida entre consultas al servidor.
+// Sin datos de la placa muestra "--".
+function tick() {
+  if (ultimo && ultimo.connected) {
+    const rest = Math.max(0, (ultimo.remaining ?? 0) - (performance.now() - horaRecibido) / 1000);
+    document.getElementById('cuenta').innerHTML = Math.ceil(rest) + ' <small>s</small>';
+  } else {
+    document.getElementById('cuenta').innerHTML = '-- <small>s</small>';
+  }
+  requestAnimationFrame(tick);
+}
+
+setInterval(consultar, 500);
+consultar();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
